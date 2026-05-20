@@ -1,0 +1,17 @@
+# Source-code CycloneDX SBOM for the Dependency-Track API server.
+# Consumed by relizaio/rearm-actions/sbom-sign-scan with
+# source_code_sbom_type=custom: build context is the repo root and the
+# output is expected at /sbom/sbom.json. Matches the rearm-core backend's
+# Dockerfile.sbom convention.
+
+FROM maven:3.9.15-eclipse-temurin-21@sha256:856fe78872c59d3b584a64d07693d5433cbf44e35b5ba1f2c911147f39f54266
+ARG VERSION=not_versioned
+RUN mkdir /app && mkdir /sbom
+COPY . /app/
+WORKDIR /app
+# Invoke the plugin directly so this works regardless of whether the upstream
+# pom declares cyclonedx-maven-plugin. makeAggregateBom emits target/bom.json.
+RUN mvn -B org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeAggregateBom \
+        -DincludeBomSerialNumber=true \
+        -DoutputFormat=json \
+    && cp /app/target/bom.json /sbom/sbom.json
