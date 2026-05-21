@@ -18,8 +18,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       REGISTRY_HOST: registry.relizahub.com
-      IMAGE_NAMESPACE: registry.relizahub.com/0c42eaee-5ab9-42fc-8735-f4a53b87d0a9-private
-      IMAGE_NAME: rearm-dependency-track
+      IMAGE_NAMESPACE: registry.relizahub.com/library
+      IMAGE_NAME: dependency-track-backend4
       DOCKERFILE: Dockerfile
       PLATFORM_ARCHITECTURES: linux/amd64
     steps:
