@@ -1,0 +1,14 @@
+# Build-context filter for the root Dockerfile (this fork's self-contained
+# Maven build). BuildKit reads <dockerfile-path>.dockerignore in preference
+# to .dockerignore, so this overrides the upstream .dockerignore — which is
+# tuned for src/main/docker/Dockerfile's "pre-built JAR" pattern and excludes
+# src/. We need the full source tree (including src/main/proto for the
+# protobuf-maven-plugin) in the build context because Maven runs inside the
+# image.
+
+.git
+.github
+.idea
+docs
+target
+*.md
