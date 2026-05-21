@@ -2,6 +2,13 @@ on: [push]
 
 name: Build ReARM Dependency-Track Components And Submit Metadata To Reliza ReARM
 
+# Inlined equivalent of relizaio/rearm-docker-action@v1.11.0 — kept verbatim
+# except for enable_invisible_char_check: 'false' on the initialize step.
+# The wrapper hardcodes that to 'true' and trips on legitimate invisible chars
+# in vendored upstream files (emoji variation selectors in docs, NBSP in SPDX
+# license texts under src/main/resources/license-list-data/, BOM in t2d files).
+# Switch back to the wrapper once relizaio/rearm-docker-action exposes the
+# flag as a wrapper input.
 jobs:
   build-dependency-track:
     permissions:
@@ -9,19 +16,114 @@ jobs:
       id-token: write
     name: Build And Push ReARM Dependency-Track
     runs-on: ubuntu-latest
+    env:
+      REGISTRY_HOST: registry.relizahub.com
+      IMAGE_NAMESPACE: registry.relizahub.com/0c42eaee-5ab9-42fc-8735-f4a53b87d0a9-private
+      IMAGE_NAME: rearm-dependency-track
+      DOCKERFILE: Dockerfile
+      PLATFORM_ARCHITECTURES: linux/amd64
     steps:
-      - name: Build And Push ReARM Dependency-Track
-        uses: relizaio/rearm-docker-action@c9b221a61039ba59f8255d2976a62542d2286207 # v1.11.0
+      - name: Checkout
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
-          registry_username: ${{ secrets.DOCKER_LOGIN }}
-          registry_password: ${{ secrets.DOCKER_TOKEN }}
-          registry_host: registry.relizahub.com
-          image_namespace: registry.relizahub.com/0c42eaee-5ab9-42fc-8735-f4a53b87d0a9-private
-          image_name: rearm-dependency-track
+          fetch-depth: 0
+      - name: setup-rearm
+        uses: relizaio/rearm-actions/setup-cli@46f1e94352761205d85e8a26d32dc0d618687b6d # v1.4.0
+      - name: Display rearm version
+        shell: bash
+        run: rearm version
+      - id: init
+        name: Initialize ReARM Flow
+        uses: relizaio/rearm-actions/initialize@46f1e94352761205d85e8a26d32dc0d618687b6d # v1.4.0
+        with:
           rearm_api_id: ${{ secrets.REARM_DEPENDECY_TRACK_BACKEND_API_ID }}
           rearm_api_key: ${{ secrets.REARM_DEPENDECY_TRACK_BACKEND_API_KEY }}
           rearm_api_url: https://reliza.rearmhq.com
+          repo_path: .
+          create_component: 'true'
+          create_component_version_schema: 'semver'
+          create_component_branch_version_schema: 'Branch.Micro'
+          allow_rebuild: 'false'
+          enable_invisible_char_check: 'false'
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - name: Login to ReARM Registry
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ${{ env.REGISTRY_HOST }}
+          username: ${{ secrets.DOCKER_LOGIN }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+      - name: Build and push image
+        if: env.REARM_DO_BUILD == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch_name="${{ github.ref_name }}"
+          safe_branch_name=$(echo -n "$branch_name" | tr -dc '[:alnum:]-_.')
+          case "$safe_branch_name" in
+            master|main) latest_tag=latest ;;
+            *) latest_tag="$safe_branch_name" ;;
+          esac
+          tags="-t ${IMAGE_NAMESPACE}/${IMAGE_NAME}:${{ steps.init.outputs.short_version }}"
+          tags+=" -t ${IMAGE_NAMESPACE}/${IMAGE_NAME}:${latest_tag}"
+          if [ "$latest_tag" != "$safe_branch_name" ]; then
+            tags+=" -t ${IMAGE_NAMESPACE}/${IMAGE_NAME}:${safe_branch_name}"
+          fi
+          docker buildx build --push \
+            --platform "${PLATFORM_ARCHITECTURES}" \
+            $tags \
+            --build-arg VERSION=${{ steps.init.outputs.full_version }} \
+            --build-arg CI_ENV=github${{ github.sha }} \
+            --build-arg GIT_COMMIT=${{ github.sha }} \
+            --build-arg GIT_BRANCH=${{ github.ref_name }} \
+            -f "${DOCKERFILE}" .
+          digest=$(docker buildx imagetools inspect \
+            --format '{{json .Manifest}}' \
+            "${IMAGE_NAMESPACE}/${IMAGE_NAME}:${{ steps.init.outputs.short_version }}" \
+            | jq -r '.digest')
+          echo "DOCKER_SHA_256=${digest}" >> "$GITHUB_ENV"
+          echo "REARM_BUILD_LIFECYCLE=ASSEMBLED" >> "$GITHUB_ENV"
+      - id: sbom
+        name: Generate and sign SBOMs
+        if: steps.init.outputs.do_build == 'true'
+        uses: relizaio/rearm-actions/sbom-sign-scan@46f1e94352761205d85e8a26d32dc0d618687b6d # v1.4.0
+        with:
+          image_full_name: ${{ env.IMAGE_NAMESPACE }}/${{ env.IMAGE_NAME }}
+          image_digest: $DOCKER_SHA_256
+          rearm_short_version: ${{ steps.init.outputs.short_version }}
+          rearm_full_version: ${{ steps.init.outputs.full_version }}
           enable_sbom: 'true'
           source_code_sbom_type: 'custom'
+          registry_username: ${{ secrets.DOCKER_LOGIN }}
+          registry_password: ${{ secrets.DOCKER_TOKEN }}
+          registry_host: ${{ env.REGISTRY_HOST }}
+          repo_path: .
           enable_public_cosign_sigstore: 'true'
-          create_component: 'true'
+          enable_codeql: 'false'
+          codeql_language: 'none'
+          enable_securesbom: 'false'
+      - name: Submit metadata to ReARM and Finalize
+        if: steps.init.outputs.do_build == 'true'
+        uses: relizaio/rearm-actions/finalize@46f1e94352761205d85e8a26d32dc0d618687b6d # v1.4.0
+        with:
+          rearm_api_id: ${{ secrets.REARM_DEPENDECY_TRACK_BACKEND_API_ID }}
+          rearm_api_key: ${{ secrets.REARM_DEPENDECY_TRACK_BACKEND_API_KEY }}
+          rearm_api_url: https://reliza.rearmhq.com
+          image_full_name: ${{ env.IMAGE_NAMESPACE }}/${{ env.IMAGE_NAME }}
+          image_digest: $DOCKER_SHA_256
+          rearm_build_start: ${{ steps.init.outputs.build_start }}
+          rearm_short_version: ${{ steps.init.outputs.short_version }}
+          rearm_full_version: ${{ steps.init.outputs.full_version }}
+          rearm_build_lifecycle: ${{ env.REARM_BUILD_LIFECYCLE }}
+          commit_list: ${{ steps.init.outputs.commit_list }}
+          sce_commit: ${{ steps.init.outputs.sce_commit }}
+          sce_commit_message: ${{ steps.init.outputs.sce_commit_message }}
+          sce_commit_date: ${{ steps.init.outputs.sce_commit_date }}
+          sce_vcs_uri: ${{ steps.init.outputs.sce_vcs_uri }}
+          scearts: ${{ steps.sbom.outputs.scearts }}
+          odelartsjson: ${{ steps.sbom.outputs.odelartsjson }}
+          purl: ${{ steps.sbom.outputs.purl }}
+          repo_path: .
+          finalize_release: 'true'
