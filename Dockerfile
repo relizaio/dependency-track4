@@ -26,10 +26,14 @@ FROM maven:3.9.15-eclipse-temurin-21@sha256:856fe78872c59d3b584a64d07693d5433cbf
 WORKDIR /workdir
 COPY --from=build-cache-stage /root/.m2 /root/.m2
 COPY . ./
-# Same Maven invocation the upstream _meta-build.yaml uses for the apiserver
-# distribution (excludes the bundled UI; the frontend ships as a separate image).
+# Maven invocation matching upstream _meta-build.yaml for the apiserver
+# distribution (excludes the bundled UI; the frontend ships as a separate
+# image). services.bom.merge.skip=true: that step invokes a `cyclonedx` CLI
+# binary that isn't present in the base Maven image; it produces a release-
+# level BOM that we don't bundle in the image anyway (ReARM generates its
+# own SBOM via Dockerfile.sbom). Skipping keeps the builder dependency-free.
 RUN mvn -B -P quick -P enhance -P embedded-jetty \
-        -Dservices.bom.merge.skip=false \
+        -Dservices.bom.merge.skip=true \
         -Dlogback.configuration.file=src/main/docker/logback.xml \
         package
 
