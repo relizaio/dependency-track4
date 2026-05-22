@@ -21,6 +21,7 @@ package org.dependencytrack.model;
 import alpine.common.validation.RegexSequence;
 import alpine.server.json.TrimmedStringDeserializer;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
@@ -401,6 +402,15 @@ public class Component implements Serializable {
     @Index(name = "COMPONENT_PROJECT_ID_IDX")
     @Column(name = "PROJECT_ID", allowsNull = "false")
     @NotNull
+    // Project.directDependencies is the stringified BOM dependency graph
+    // (one row per BOM, often hundreds of KB). Suppress it when a Project is
+    // serialized as the parent of a Component, because the per-row Component
+    // graph in list responses (e.g. /vulnerability/project, /vulnerability/component)
+    // otherwise repeats that blob in every row of the response. The dedicated
+    // dependency-graph endpoints (/api/v1/dependencyGraph/...) and the
+    // standalone Project response (/api/v1/project/{uuid}) read the field
+    // straight off the entity and are unaffected.
+    @JsonIgnoreProperties({"directDependencies"})
     private Project project;
 
     /**
