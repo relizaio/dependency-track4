@@ -79,7 +79,14 @@ ARG WAR_FILENAME
 
 ENV TZ=Etc/UTC \
     LOGGING_LEVEL=INFO \
-    JAVA_OPTIONS="-XX:+UseG1GC -XX:+UseStringDeduplication -XX:+UseCompactObjectHeaders -XX:MaxRAMPercentage=80.0 -XX:MaxGCPauseMillis=250" \
+    # -Duser.home: the distroless `nonroot` user's /etc/passwd entry has
+    # `/home/nonroot` as its home dir, which is in the image layer (not on
+    # the PV) and not what dtrack should write to. The Alpine framework
+    # writes ~/.dependency-track/id.system on first start, and the JVM
+    # reads `user.home` from getpwuid(), not from $HOME. Without this flag
+    # the apiserver crashes with NoSuchFileException on /home/nonroot/...
+    # Pin to ${DATA_DIR} (which is on the PV and chowned to UID 65532).
+    JAVA_OPTIONS="-XX:+UseG1GC -XX:+UseStringDeduplication -XX:+UseCompactObjectHeaders -XX:MaxRAMPercentage=80.0 -XX:MaxGCPauseMillis=250 -Duser.home=/data" \
     EXTRA_JAVA_OPTIONS="" \
     CONTEXT="/" \
     WAR_FILENAME=${WAR_FILENAME} \
