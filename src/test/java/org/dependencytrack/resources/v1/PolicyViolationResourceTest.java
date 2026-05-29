@@ -226,6 +226,64 @@ class PolicyViolationResourceTest extends ResourceTest {
     }
 
     @Test
+    void getViolationsByProjectOmitsDirectDependenciesInEmbeddedProjectTest() {
+        // Regression guard: Project.directDependencies is a stringified JSON of
+        // the BOM dependency graph (often hundreds of KB). The /violation/project
+        // endpoint emits one row per PolicyViolation and inlines the parent Project
+        // under each row. Before the @JsonIgnoreProperties on PolicyViolation.project,
+        // that graph string was repeated in every row — for a project with many
+        // violations the response carried the same ~400 KB blob per row, which is
+        // the row-level bloat that drove ReARM-side PR #146 to cap the violation
+        // page size at 50. The dedicated /dependencyGraph/... endpoints and the
+        // standalone Project response still expose the field; this assertion only
+        // fences the row-level redundancy.
+        initializeWithPermissions(Permissions.VIEW_POLICY_VIOLATION);
+
+        final Project project = qm.createProject("Acme Example", null, "1.0", null, null, null, true, false);
+        // Give the project a non-empty directDependencies so the assertion has
+        // something to fail against if the annotation is removed.
+        project.setDirectDependencies(
+                "[{\"uuid\":\"00000000-0000-0000-0000-000000000001\",\"name\":\"acme\"}]");
+        qm.persist(project);
+
+        var component = new Component();
+        component.setProject(project);
+        component.setName("Acme Component");
+        component.setVersion("1.0");
+        component = qm.createComponent(component, false);
+
+        final Policy policy = qm.createPolicy("Blacklisted Version", Policy.Operator.ALL, Policy.ViolationState.FAIL);
+        final PolicyCondition condition = qm.createPolicyCondition(policy, PolicyCondition.Subject.VERSION, PolicyCondition.Operator.NUMERIC_EQUAL, "1.0");
+
+        // PolicyViolation has no public setProject; persistence backfills
+        // PROJECT_ID via the component's project link — same pattern the
+        // existing getViolationsTest / getViolationsByProjectTest rely on.
+        var violation = new PolicyViolation();
+        violation.setType(PolicyViolation.Type.OPERATIONAL);
+        violation.setComponent(component);
+        violation.setPolicyCondition(condition);
+        violation.setTimestamp(new Date());
+        qm.persist(violation);
+
+        final Response response = jersey.target(V1_POLICY_VIOLATION)
+                .path("/project/" + project.getUuid())
+                .request()
+                .header(X_API_KEY, apiKey)
+                .get();
+        assertThat(response.getStatus()).isEqualTo(Response.Status.OK.getStatusCode());
+        final JsonArray jsonArray = parseJsonArray(response);
+        assertThat(jsonArray).as("fixture should produce at least one violation row").isNotEmpty();
+        for (int i = 0; i < jsonArray.size(); i++) {
+            final JsonObject row = jsonArray.getJsonObject(i);
+            final JsonObject proj = row.getJsonObject("project");
+            if (proj == null) continue;
+            assertThat(proj.containsKey("directDependencies"))
+                    .as("row " + i + ": project must not include directDependencies")
+                    .isFalse();
+        }
+    }
+
+    @Test
     void getViolationsByProjectUnauthorizedTest() {
         final Response response = jersey.target(V1_POLICY_VIOLATION)
                 .path("/project/" + UUID.randomUUID())

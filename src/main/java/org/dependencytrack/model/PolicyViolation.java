@@ -67,6 +67,17 @@ public class PolicyViolation implements Serializable {
     @Persistent(defaultFetchGroup = "true")
     @Column(name = "PROJECT_ID", allowsNull = "false")
     @Index(name = "POLICYVIOLATION_PROJECT_IDX")
+    // Project.directDependencies is the stringified BOM dependency graph
+    // (one row per BOM, often hundreds of KB). Suppress it when a Project
+    // is serialized as the parent of a PolicyViolation, because the
+    // /violation/project/{uuid} and /violation list endpoints emit one row
+    // per violation and inline the parent Project — without this annotation
+    // every row carries the full graph string. Mirrors the equivalent
+    // suppression on Component.project; the dedicated dependency-graph
+    // endpoints (/api/v1/dependencyGraph/...) and the standalone Project
+    // response (/api/v1/project/{uuid}) read the field straight off the
+    // entity and are unaffected.
+    @JsonIgnoreProperties({"directDependencies"})
     private Project project;
 
     @Persistent(defaultFetchGroup = "true")
