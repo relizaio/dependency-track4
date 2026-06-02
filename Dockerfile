@@ -20,6 +20,11 @@
 # ${JAVA_OPTIONS}/${EXTRA_JAVA_OPTIONS} env-var expansion in CMD still works
 # without forcing every consumer over to JAVA_TOOL_OPTIONS.
 #
+# Release tags on this branch are 4.14.2-reliza.N, where N (the micro) is
+# assigned by the rearm-docker-action Branch.Micro schema — so every source
+# change committed here mints the next .N (the build is skipped when the
+# diff against the last released commit is empty).
+#
 # Arguments that can be passed at build time
 # Directory names must end with / to avoid errors when COPYing
 ARG COMMIT_SHA=unknown
