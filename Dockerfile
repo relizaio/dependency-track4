@@ -149,7 +149,7 @@ EXPOSE 8080
 # deploy this image outside K8s and need an equivalent.
 
 LABEL \
-    org.opencontainers.image.vendor="Reliza Inc." \
+    org.opencontainers.image.vendor="Reliza Incorporated" \
     org.opencontainers.image.title="Dependency-Track API Server (relizaio fork)" \
     org.opencontainers.image.description="Dependency-Track API server, built from the relizaio fork tracking https://github.com/DependencyTrack/dependency-track" \
     org.opencontainers.image.version="${APP_VERSION}" \
