@@ -152,9 +152,26 @@ class CycloneDxValidatorTest {
                 .withMessage("Schema validation failed")
                 .extracting(InvalidBomException::getValidationErrors).asList()
                 .containsExactly("""
-                        $.components[0].type: does not have a value in the enumeration \
+                        /components/0/type: does not have a value in the enumeration \
                         ["application", "framework", "library", "container", "operating-system", "device", "firmware", "file"]\
                         """);
+    }
+
+    @Test
+    void testValidateXmlWithCdata() {
+        assertThatNoException().isThrownBy(() -> validator.validate(/* language=XML */ """
+                <?xml version="1.0"?>
+                <bom serialNumber="urn:uuid:3e671687-395b-41f5-a30f-a58921a69b79" version="1" xmlns="http://cyclonedx.org/schema/bom/1.6">
+                    <metadata>
+                        <timestamp><![CDATA[2026-10-21T00:29:40Z]]></timestamp>
+                    </metadata>
+                    <components>
+                        <component type="library">
+                            <name>acme-library</name>
+                        </component>
+                    </components>
+                </bom>
+                """.getBytes()));
     }
 
     @Test

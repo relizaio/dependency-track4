@@ -163,13 +163,18 @@ class VexResourceTest extends ResourceTest {
                               "name": "acme-app",
                               "version": "1.0.0"
                             },
-                            "tools": [
-                              {
-                                "vendor": "OWASP",
-                                "name": "Dependency-Track",
-                                "version": "${json-unit.any-string}"
-                              }
-                            ]
+                            "tools": {
+                                "components": [
+                                    {
+                                        "type": "application",
+                                        "supplier": {
+                                            "name": "OWASP"
+                                        },
+                                        "name": "Dependency-Track",
+                                        "version": "${json-unit.any-string}"
+                                    }
+                                ]
+                            }
                           },
                           "vulnerabilities": [
                             {
@@ -281,13 +286,18 @@ class VexResourceTest extends ResourceTest {
                               "name": "acme-app",
                               "version": "1.0.0"
                             },
-                            "tools": [
-                              {
-                                "vendor": "OWASP",
-                                "name": "Dependency-Track",
-                                "version": "${json-unit.any-string}"
-                              }
-                            ]
+                            "tools": {
+                                "components": [
+                                    {
+                                        "type": "application",
+                                        "supplier": {
+                                            "name": "OWASP"
+                                        },
+                                        "name": "Dependency-Track",
+                                        "version": "${json-unit.any-string}"
+                                    }
+                                ]
+                            }
                           },
                           "vulnerabilities": [
                             {
@@ -378,13 +388,18 @@ class VexResourceTest extends ResourceTest {
                               "name": "acme-app",
                               "version": "1.0.0"
                             },
-                            "tools": [
-                              {
-                                "vendor": "OWASP",
-                                "name": "Dependency-Track",
-                                "version": "${json-unit.any-string}"
-                              }
-                            ]
+                            "tools": {
+                                "components": [
+                                    {
+                                        "type": "application",
+                                        "supplier": {
+                                            "name": "OWASP"
+                                        },
+                                        "name": "Dependency-Track",
+                                        "version": "${json-unit.any-string}"
+                                    }
+                                ]
+                            }
                           },
                           "vulnerabilities": [
                             {
@@ -567,7 +582,7 @@ class VexResourceTest extends ResourceTest {
                   "title": "The uploaded BOM is invalid",
                   "detail": "Schema validation failed",
                   "errors": [
-                    "$.components[0].type: does not have a value in the enumeration [\\"application\\", \\"framework\\", \\"library\\", \\"container\\", \\"operating-system\\", \\"device\\", \\"firmware\\", \\"file\\"]"
+                    "/components/0/type: does not have a value in the enumeration [\\"application\\", \\"framework\\", \\"library\\", \\"container\\", \\"operating-system\\", \\"device\\", \\"firmware\\", \\"file\\"]"
                   ]
                 }
                 """);

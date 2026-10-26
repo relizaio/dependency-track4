@@ -54,6 +54,7 @@ import org.dependencytrack.model.OrganizationalContact;
 import org.dependencytrack.model.OrganizationalEntity;
 import org.dependencytrack.model.Project;
 import org.dependencytrack.model.ProjectMetadata;
+import org.dependencytrack.model.ProjectMetrics;
 import org.dependencytrack.model.ProjectProperty;
 import org.dependencytrack.model.ServiceComponent;
 import org.dependencytrack.model.Tag;
@@ -71,17 +72,18 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Date;
 import java.util.List;
-import java.util.stream.Stream;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -208,6 +210,7 @@ class ProjectResourceTest extends ResourceTest {
         for (int i=0; i<500; i++) {
             qm.createProject("Acme Example", null, String.valueOf(i), null, null, null, false, false);
         }
+        persistProjectMetrics(qm.getProject("Acme Example", "10"), 42);
         Response response = jersey.target(V1_PROJECT+"/lookup")
                 .queryParam("name", "Acme Example")
                 .queryParam("version", "10")
@@ -224,6 +227,36 @@ class ProjectResourceTest extends ResourceTest {
         Assertions.assertNotNull(json.getJsonArray("versions").getJsonObject(100).getString("uuid"));
         Assertions.assertNotEquals("", json.getJsonArray("versions").getJsonObject(100).getString("uuid"));
         Assertions.assertEquals("100", json.getJsonArray("versions").getJsonObject(100).getString("version"));
+        Assertions.assertEquals(42, json.getJsonObject("metrics").getInt("vulnerabilities"));
+    }
+
+    @Test
+    void getLatestProjectByNameTest() {
+        qm.createProject("Acme Example", null, "1.0", null, null, null, false, false);
+        final Project latest = qm.createProject("Acme Example", null, "2.0", null, null, null, false, false);
+        latest.setIsLatest(true);
+        qm.persist(latest);
+        persistProjectMetrics(latest, 7);
+
+        final Response response = jersey.target(V1_PROJECT + "/latest/Acme Example")
+                .request()
+                .header(X_API_KEY, apiKey)
+                .get(Response.class);
+        Assertions.assertEquals(200, response.getStatus(), 0);
+        final JsonObject json = parseJsonObject(response);
+        Assertions.assertEquals("2.0", json.getString("version"));
+        // Both are enriched by the resource, not by the query manager.
+        Assertions.assertEquals(2, json.getJsonArray("versions").size());
+        Assertions.assertEquals(7, json.getJsonObject("metrics").getInt("vulnerabilities"));
+    }
+
+    private void persistProjectMetrics(final Project project, final int vulnerabilities) {
+        final var metrics = new ProjectMetrics();
+        metrics.setProject(project);
+        metrics.setVulnerabilities(vulnerabilities);
+        metrics.setFirstOccurrence(new Date());
+        metrics.setLastOccurrence(new Date());
+        qm.persist(metrics);
     }
 
     @Test
@@ -568,6 +601,24 @@ class ProjectResourceTest extends ResourceTest {
                         """.formatted(parentProject.getUuid())));
         assertThat(response.getStatus()).isEqualTo(409);
         assertThat(getPlainTextBody(response)).isEqualTo("An inactive Parent cannot be selected as parent");
+    }
+
+    @Test
+    void shouldReturnBadRequestWhenCreatingProjectWithNullParentUuid() {
+        final Response response = jersey
+                .target(V1_PROJECT)
+                .request()
+                .header(X_API_KEY, apiKey)
+                .put(Entity.json(/* language=JSON */ """
+                        {
+                          "parent": {
+                            "uuid": null
+                          },
+                          "name": "acme-app"
+                        }
+                        """));
+        assertThat(response.getStatus()).isEqualTo(400);
+        assertThat(getPlainTextBody(response)).isEqualTo("parent.uuid must be provided when parent is set");
     }
 
     @Test
@@ -1321,6 +1372,29 @@ class ProjectResourceTest extends ResourceTest {
     }
 
     @Test
+    void shouldReturnBadRequestWhenUpdatingProjectWithNullParentUuid() {
+        final var project = new Project();
+        project.setName("acme-app");
+        qm.persist(project);
+
+        final Response response = jersey
+                .target(V1_PROJECT)
+                .request()
+                .header(X_API_KEY, apiKey)
+                .post(Entity.json(/* language=JSON */ """
+                        {
+                          "parent": {
+                            "uuid": null
+                          },
+                          "uuid": "%s",
+                          "name": "acme-app"
+                        }
+                        """.formatted(project.getUuid())));
+        assertThat(response.getStatus()).isEqualTo(400);
+        assertThat(getPlainTextBody(response)).isEqualTo("parent.uuid must be provided when parent is set");
+    }
+
+    @Test
     void deleteProjectTest() {
         Project project = qm.createProject("ABC", null, "1.0", null, null, null, true, false);
         Response response = jersey.target(V1_PROJECT + "/" + project.getUuid().toString())
@@ -1713,6 +1787,27 @@ class ProjectResourceTest extends ResourceTest {
         qm.getPersistenceManager().evictAll();
         assertThat(project.getParent()).isNotNull();
         assertThat(project.getParent().getUuid()).isEqualTo(parent.getUuid());
+    }
+
+    @Test
+    void shouldReturnBadRequestWhenPatchingProjectWithNullParentUuid() {
+        final Project project = qm.createProject("DEF", null, "2.0", null, null, null, false, false);
+
+        final Response response = jersey
+                .target(V1_PROJECT + "/" + project.getUuid())
+                .request()
+                .header(X_API_KEY, apiKey)
+                .property(HttpUrlConnectorProvider.SET_METHOD_WORKAROUND, true)
+                .method(HttpMethod.PATCH, Entity.json(/* language=JSON */ """
+                        {
+                          "parent": {
+                            "uuid": null
+                          }
+                        }
+                        """));
+
+        assertThat(response.getStatus()).isEqualTo(400);
+        assertThat(getPlainTextBody(response)).isEqualTo("parent.uuid must be provided when parent is set");
     }
 
     @Test

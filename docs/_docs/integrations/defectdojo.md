@@ -14,6 +14,16 @@ Dependency-Track accomplishes this in the following ways:
 * Dependency-Track pushes findings to DefectDojo on a periodic basis (configurable)
 * DefectDojo parses Dependency-Track findings
 
+### Forwarded analysis data
+
+Each finding pushed to DefectDojo includes audit data from Dependency-Track. The following fields influence how DefectDojo represents the finding:
+
+| Field                  | Description |
+| ---------------------- | ----------- |
+| `analysis.state`       | A state of `FALSE_POSITIVE` marks the finding as a false positive in DefectDojo. Other states are included in the payload but are not acted on by the DefectDojo parser. |
+| `analysis.isSuppressed`| Whether the finding is suppressed in Dependency-Track. |
+| `analysis.detail`      | Free-text analyst notes entered in Dependency-Track. Appended to the finding description in DefectDojo. Requires Dependency-Track v4.14.0 or higher and a compatible version of the DefectDojo Dependency Track parser. |
+
 Requirements:
 * Dependency-Track v4.1.0 or higher
 * DefectDojo 1.13.1 or higher
@@ -101,3 +111,25 @@ The DefectDojo documentation says 'If no test_title is provided, the latest test
 * Dependency-Track v4.6.0 or higher
 ![Configure Project](/images/screenshots/defectdojo_global_reimport.png)
 Alternatively, you can turn on the above reimport feature for all projects in one click, by checking on 'Enable reimport' box as shown in the screenshot above.
+
+#### Step 11: Add per project configuration for finding groups
+
+* Not supported in any release yet
+
+You can define how findings should be grouped into Finding Groups in DefectDojo on import/reimport. This is particularly useful when pushing findings to an issue tracker like Jira, as it allows multiple related findings (e.g. all vulnerabilities in the same component) to be consolidated into a single ticket instead of one ticket per finding.
+
+If this property is not set, no grouping is applied and DefectDojo's default behavior is used.
+
+Supported values are defined by DefectDojo (see [`GROUP_BY_OPTIONS`](https://github.com/DefectDojo/django-DefectDojo/blob/6eab87386d504c4bc164f87b6aae58a8e0c1b8d2/dojo/models.py#L3703) in the DefectDojo source), and currently include:
+
+* `component_name`
+* `component_name+component_version`
+* `file_path`
+* `finding_title`
+
+| Attribute      | Value                                                         |
+|----------------|---------------------------------------------------------------|
+| Group Name     | `integrations`                                                |
+| Property Name  | `defectdojo.groupBy`                                          |
+| Property Value | One of the supported `group_by` values, e.g. `component_name` |
+| Property Type  | `STRING`                                                      |

@@ -34,6 +34,7 @@ import org.assertj.core.api.SoftAssertions;
 import org.dependencytrack.PersistenceCapableTest;
 import org.dependencytrack.common.ManagedHttpClientFactory;
 import org.dependencytrack.event.TrivyAnalysisEvent;
+import org.dependencytrack.model.Classifier;
 import org.dependencytrack.model.Component;
 import org.dependencytrack.model.ComponentAnalysisCache;
 import org.dependencytrack.model.Project;
@@ -541,6 +542,144 @@ class TrivyAnalysisTaskTest extends PersistenceCapableTest {
                 .anySatisfy(app -> assertThat(app.getPackagesList())
                         .anySatisfy(pkg -> assertThat(pkg.getName())
                                 .isEqualTo("symfony/http-foundation")));
+    }
+
+    @Test
+    void testAnalyzeMatchesPurlWithDifferentlyEncodedQualifier() {
+        // Trivy re-serializes PURLs without percent-encoding colons in qualifier values,
+        // whereas packageurl-java encodes them as %3A.
+        stubTrivyEndpoints(ScanResponse.newBuilder()
+                .addResults(Result.newBuilder()
+                        .setClass_("lang-pkgs")
+                        .setTarget("python")
+                        .setType("python-pkg")
+                        .addVulnerabilities(trivy.proto.common.Vulnerability.newBuilder()
+                                .setStatus(3)
+                                .setVulnerabilityId("CVE-2022-11111")
+                                .setPkgIdentifier(PkgIdentifier.newBuilder()
+                                        .setPurl("pkg:pypi/urllib3@2.7.0?repository_url=https:%2F%2Fexample.com%2Fsimple"))
+                                .setSeverity(trivy.proto.common.Severity.HIGH)
+                                .build())
+                        .build())
+                .build());
+
+        var project = new Project();
+        project.setName("acme-app");
+        project = qm.createProject(project, null, false);
+
+        var component = new Component();
+        component.setProject(project);
+        component.setName("urllib3");
+        component.setVersion("2.7.0");
+        component.setPurl("pkg:pypi/urllib3@2.7.0?repository_url=https://example.com/simple");
+        component = qm.createComponent(component, false);
+
+        new TrivyAnalysisTask().inform(new TrivyAnalysisEvent(
+                List.of(component), VulnerabilityAnalysisLevel.BOM_UPLOAD_ANALYSIS));
+
+        assertThat(qm.getAllVulnerabilities(component)).satisfiesExactly(
+                vuln -> assertThat(vuln.getVulnId()).isEqualTo("CVE-2022-11111"));
+    }
+
+    @Test
+    void testAnalyzeSkipsVulnerabilityWithUnmatchedPurl() {
+        stubTrivyEndpoints(ScanResponse.newBuilder()
+                .addResults(Result.newBuilder()
+                        .setClass_("lang-pkgs")
+                        .setTarget("python")
+                        .setType("python-pkg")
+                        .addVulnerabilities(trivy.proto.common.Vulnerability.newBuilder()
+                                .setStatus(3)
+                                .setVulnerabilityId("CVE-2022-11111")
+                                .setPkgIdentifier(PkgIdentifier.newBuilder().setPurl("not-a-purl"))
+                                .setSeverity(trivy.proto.common.Severity.HIGH)
+                                .build())
+                        .build())
+                .build());
+
+        var project = new Project();
+        project.setName("acme-app");
+        project = qm.createProject(project, null, false);
+
+        var component = new Component();
+        component.setProject(project);
+        component.setName("urllib3");
+        component.setVersion("2.7.0");
+        component.setPurl("pkg:pypi/urllib3@2.7.0");
+        component = qm.createComponent(component, false);
+
+        new TrivyAnalysisTask().inform(new TrivyAnalysisEvent(
+                List.of(component), VulnerabilityAnalysisLevel.BOM_UPLOAD_ANALYSIS));
+
+        assertThat(qm.getAllVulnerabilities(component)).isEmpty();
+    }
+
+    private static void stubTrivyEndpoints(final ScanResponse scanResponse) {
+        stubFor(post(urlPathEqualTo("/twirp/trivy.cache.v1.Cache/PutBlob"))
+                .willReturn(aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/protobuf")));
+
+        stubFor(post(urlPathEqualTo("/twirp/trivy.scanner.v1.Scanner/Scan"))
+                .willReturn(aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/protobuf")
+                        .withBody(scanResponse.toByteArray())));
+
+        stubFor(post(urlPathEqualTo("/twirp/trivy.cache.v1.Cache/DeleteBlobs"))
+                .willReturn(aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/protobuf")));
+    }
+
+    @Test
+    void testAnalyzeOsComponentWithPurl() throws InvalidProtocolBufferException {
+        stubFor(post(urlPathEqualTo("/twirp/trivy.cache.v1.Cache/PutBlob"))
+                .willReturn(aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/protobuf")));
+
+        stubFor(post(urlPathEqualTo("/twirp/trivy.scanner.v1.Scanner/Scan"))
+                .willReturn(aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/protobuf")
+                        .withBody(ScanResponse.newBuilder().build().toByteArray())));
+
+        stubFor(post(urlPathEqualTo("/twirp/trivy.cache.v1.Cache/DeleteBlobs"))
+                .willReturn(aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")));
+
+        var project = new Project();
+        project.setName("acme-app");
+        project = qm.createProject(project, null, false);
+
+        var osComponent = new Component();
+        osComponent.setProject(project);
+        osComponent.setName("debian");
+        osComponent.setVersion("13.6");
+        osComponent.setPurl("pkg:generic/debian@13.6");
+        osComponent.setClassifier(Classifier.OPERATING_SYSTEM);
+        osComponent = qm.createComponent(osComponent, false);
+
+        var component = new Component();
+        component.setProject(project);
+        component.setName("libc6");
+        component.setVersion("2.41-12");
+        component.setPurl("pkg:deb/debian/libc6@2.41-12?arch=amd64&distro=debian-13.6");
+        component = qm.createComponent(component, false);
+
+        new TrivyAnalysisTask().inform(new TrivyAnalysisEvent(
+                List.of(osComponent, component), VulnerabilityAnalysisLevel.BOM_UPLOAD_ANALYSIS));
+
+        var putBlobRequests = WireMock.findAll(postRequestedFor(
+                urlPathEqualTo("/twirp/trivy.cache.v1.Cache/PutBlob")));
+        assertThat(putBlobRequests).hasSize(1);
+
+        final trivy.proto.cache.v1.PutBlobRequest putBlobRequest =
+                trivy.proto.cache.v1.PutBlobRequest.parseFrom(putBlobRequests.get(0).getBody());
+        assertThat(putBlobRequest.getBlobInfo().getOs().getFamily()).isEqualTo("debian");
+        assertThat(putBlobRequest.getBlobInfo().getOs().getName()).isEqualTo("13.6");
     }
 
     private static final ConcurrentLinkedQueue<Notification> NOTIFICATIONS = new ConcurrentLinkedQueue<>();
