@@ -126,9 +126,12 @@ WORKDIR ${APP_DIR}
 # variant of the distroless base; the rest of the command is unchanged from
 # upstream's CMD so EXTRA_JAVA_OPTIONS/JAVA_OPTIONS env-var expansion at run
 # time still works (no migration to JAVA_TOOL_OPTIONS needed).
+# -XX:-UseBASE64Intrinsics turns off the JIT's Base64 intrinsics (java4shell mitigation). It sits on the
+# java line itself, not in JAVA_OPTIONS, so overriding JAVA_OPTIONS cannot drop it.
 ENTRYPOINT [ \
     "/busybox/sh", "-c", \
     "exec java \
+        -XX:-UseBASE64Intrinsics \
         ${JAVA_OPTIONS} ${EXTRA_JAVA_OPTIONS} \
         --add-opens java.base/java.util.concurrent=ALL-UNNAMED \
         --sun-misc-unsafe-memory-access=allow \
