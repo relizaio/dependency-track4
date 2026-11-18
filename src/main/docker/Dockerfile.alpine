@@ -93,9 +93,12 @@ COPY --chown=${UID}:0 ./target/${WAR_FILENAME} ./src/main/docker/logback-json.xm
 ENTRYPOINT ["/sbin/tini", "--"]
 
 # Launch Dependency-Track
+# -XX:-UseBASE64Intrinsics turns off the JIT's Base64 intrinsics (java4shell mitigation). It sits on the
+# java line itself, not in JAVA_OPTIONS, so overriding JAVA_OPTIONS cannot drop it.
 CMD [ \
     "/bin/sh", "-c", \
     "exec java \
+        -XX:-UseBASE64Intrinsics \
         ${JAVA_OPTIONS} ${EXTRA_JAVA_OPTIONS} \
         --add-opens java.base/java.util.concurrent=ALL-UNNAMED \
         --sun-misc-unsafe-memory-access=allow \
