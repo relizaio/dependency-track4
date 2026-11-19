@@ -25,7 +25,7 @@ ARG UID=1000
 ARG GID=1000
 ARG WAR_FILENAME=dependency-track-apiserver.jar
 
-FROM eclipse-temurin:25.0.4.1_1-jdk-alpine@sha256:3fd2d245c4e0eba615fe366a71b8bd25f5db7104f53e4026b24bf508b880bd2a AS jre-build
+FROM eclipse-temurin:25.0.5_8-jdk-alpine@sha256:c7c3d0bdf7f2bbc5a05a6712ed334d198360105634ea9adf76fca94f381b1e3f AS jre-build
 
 ARG WAR_FILENAME
 
@@ -36,12 +36,7 @@ COPY ./target/${WAR_FILENAME} ./
 
 RUN ./create-jre.sh -i "./${WAR_FILENAME}" -o ./jre
 
-# Distrust compromised eMudhra intermediates until Temurin drops the root,
-# see https://emudhra.we-have-a-problem.com/
-RUN keytool -delete -keystore ./jre/lib/security/cacerts -storepass changeit \
-    -alias 'cn_emsign_ecc_root_ca__g3,o_emudhra_technologies_limited,ou_emsign_pki,c_in [jdk]'
-
-FROM alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
+FROM alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 
 ARG COMMIT_SHA
 ARG APP_VERSION
@@ -55,7 +50,9 @@ ENV TZ=Etc/UTC \
     # Dependency-Track's default logging level
     LOGGING_LEVEL=INFO \
     # JVM Options that are passed at runtime by default
-    JAVA_OPTIONS="-XX:+UseG1GC -XX:+UseStringDeduplication -XX:+UseCompactObjectHeaders -XX:MaxRAMPercentage=80.0 -XX:MaxGCPauseMillis=250" \
+    # -XX:-UseBASE64Intrinsics mitigates CVE-2026-114938 and is no longer needed once on a JDK with the fix.
+    # See https://github.com/adoptium/adoptium-support/issues/1576
+    JAVA_OPTIONS="-XX:+UseG1GC -XX:+UseStringDeduplication -XX:+UseCompactObjectHeaders -XX:MaxRAMPercentage=80.0 -XX:MaxGCPauseMillis=250 -XX:-UseBASE64Intrinsics" \
     # JVM Options that can be passed at runtime, while maintaining also those set in JAVA_OPTIONS
     EXTRA_JAVA_OPTIONS="" \
     # The web context defaults to the root. To override, supply an alternative context which starts with a / but does not end with one
