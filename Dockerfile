@@ -95,7 +95,9 @@ ARG GID
 RUN mkdir -p /layout${APP_DIR} /layout${DATA_DIR} \
  && chown -R ${UID}:${GID} /layout
 
-FROM gcr.io/distroless/base-debian13:debug-nonroot@sha256:e66792ecce3d0044c797624461716e14df4aa88c57a3a00c3a41dfba3293d84e
+# Digest of 2026-11-19 (Debian 13.7: libssl3t64 3.5.7-1~deb13u3, libc6 2.41-12+deb13u4); the
+# previous digest (Debian 13.5) carried four High libssl3t64 findings.
+FROM gcr.io/distroless/base-debian13:debug-nonroot@sha256:7f30768c4ae983ba7bbdb2e7d60a904efd6ced1e26e73e928313d3cf352166e9
 
 ARG COMMIT_SHA
 ARG APP_VERSION
