@@ -59,12 +59,30 @@ RUN mvn -B -P quick -P enhance -P embedded-jetty \
         -Dlogback.configuration.file=src/main/docker/logback.xml \
         package
 
-FROM eclipse-temurin:25.0.4.1_1-jre-jammy@sha256:e0d8c47eccd7ec82d635542dfcd1f2b1293add6bdd7ffbeb650f8ec1b1335425 AS jre-build
-
-# Distrust compromised eMudhra intermediates until Temurin drops the root,
-# see https://emudhra.we-have-a-problem.com/ (mirrors upstream 4.14.6).
-RUN keytool -delete -cacerts -storepass changeit \
-    -alias 'cn_emsign_ecc_root_ca__g3,o_emudhra_technologies_limited,ou_emsign_pki,c_in [jdk]'
+# JRE 25 from the official Adoptium Temurin archive instead of the eclipse-temurin image: 25.0.5.1+2 fixes
+# CVE-2026-114938 (java4shell) and had no eclipse-temurin image on Docker Hub when this was written. The
+# archive is pinned by URL and the SHA-256 the Adoptium API publishes for it, and its signature is checked
+# against the Adoptium signing key (the fingerprint Adoptium's own installer and container builds use).
+# It unpacks to /opt/java/openjdk, the same path the eclipse-temurin image used, so the runtime stage is
+# unchanged. To move to a newer build, take link, checksum and signature_link from
+# https://api.adoptium.net/v3/assets/release_name/eclipse/<release>?architecture=x64&image_type=jre&os=linux
+FROM alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf AS jre-build
+ARG JRE_RELEASE=jdk-25.0.5.1+2
+ARG JRE_URL=https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.5.1%2B2/OpenJDK25U-jre_x64_linux_hotspot_25.0.5.1_2.tar.gz
+ARG JRE_SHA256=2edef9e4f81ec5ee426d023336d4cfbd7b4644e99884e7a73a6a867b70b17acf
+ARG ADOPTIUM_GPG_FINGERPRINT=3B04D753C9050D9A5D343F39843C48A565F8F04B
+RUN apk add --no-cache gnupg \
+ && wget -q -O /tmp/jre.tar.gz "${JRE_URL}" \
+ && wget -q -O /tmp/jre.tar.gz.sig "${JRE_URL}.sig" \
+ && echo "${JRE_SHA256}  /tmp/jre.tar.gz" | sha256sum -c - \
+ && export GNUPGHOME="$(mktemp -d)" \
+ && gpg --batch --keyserver hkps://keyserver.ubuntu.com --recv-keys "${ADOPTIUM_GPG_FINGERPRINT}" \
+ && gpg --batch --verify /tmp/jre.tar.gz.sig /tmp/jre.tar.gz \
+ && gpg --batch --list-keys --with-colons "${ADOPTIUM_GPG_FINGERPRINT}" | grep -q "^fpr:::::::::${ADOPTIUM_GPG_FINGERPRINT}:" \
+ && mkdir -p /opt/java/openjdk \
+ && tar -xzf /tmp/jre.tar.gz -C /opt/java/openjdk --strip-components=1 --no-same-owner \
+ && grep -qx "IMPLEMENTOR_VERSION=\"Temurin-${JRE_RELEASE#jdk-}\"" /opt/java/openjdk/release \
+ && rm -rf "${GNUPGHOME}" /tmp/jre.tar.gz /tmp/jre.tar.gz.sig
 
 # Tiny shell-having stage just to create the runtime layout (the app dir +
 # the data dir) with the right ownership; distroless can't `mkdir` so we
@@ -115,7 +133,7 @@ ENV TZ=Etc/UTC \
 COPY --from=layout-stage --chown=${UID}:${GID} /layout${APP_DIR}  ${APP_DIR}
 COPY --from=layout-stage --chown=${UID}:${GID} /layout${DATA_DIR} ${DATA_DIR}
 
-# JRE 25 (same image upstream uses as jre-build) and the apiserver JAR.
+# JRE 25 (Temurin archive unpacked in jre-build) and the apiserver JAR.
 COPY --from=jre-build  --chown=${UID}:${GID} /opt/java/openjdk $JAVA_HOME
 COPY --from=build-stage --chown=${UID}:${GID} /workdir/target/${WAR_FILENAME} /workdir/src/main/docker/logback-json.xml ${APP_DIR}
 
@@ -126,12 +144,11 @@ WORKDIR ${APP_DIR}
 # variant of the distroless base; the rest of the command is unchanged from
 # upstream's CMD so EXTRA_JAVA_OPTIONS/JAVA_OPTIONS env-var expansion at run
 # time still works (no migration to JAVA_TOOL_OPTIONS needed).
-# -XX:-UseBASE64Intrinsics turns off the JIT's Base64 intrinsics (java4shell mitigation). It sits on the
-# java line itself, not in JAVA_OPTIONS, so overriding JAVA_OPTIONS cannot drop it.
+# -XX:-UseBASE64Intrinsics, the CVE-2026-114938 (java4shell) mitigation, is no longer on this line: the JRE is
+# Temurin 25.0.5.1+2, which carries the fix.
 ENTRYPOINT [ \
     "/busybox/sh", "-c", \
     "exec java \
-        -XX:-UseBASE64Intrinsics \
         ${JAVA_OPTIONS} ${EXTRA_JAVA_OPTIONS} \
         --add-opens java.base/java.util.concurrent=ALL-UNNAMED \
         --sun-misc-unsafe-memory-access=allow \
